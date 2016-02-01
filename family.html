@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+
+	<script src="family.js"></script>
+	<link rel="stylesheet" type="text/css" href="family.css">
+
+	<!-- JQuery -->
+	<script src="jquery.min.js"></script>
+
+	<!-- Boostrap -->
+	<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap.min.css" integrity="sha384-1q8mTJOASx8j1Au+a5WDVnPi2lkFfwwEAa8hDDdjZlpLegxhjVME1fgjWPGmkzs7" crossorigin="anonymous">
+</head>
+<body style="background:#EEE">
+
+	<script>
+		$(document).ready(function(){
+			Family.load("#family-graph");
+		});
+	</script>
+
+	<div id="family-graph" class="container" style="width:800px; height:600px">
+	</div>
+
+</body>
+</html>
