@@ -19,6 +19,19 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 
+/*
+person {
+	id: UUID 			(required)
+	firstname: string
+	lastname: string
+	fullname: string
+	generation: int 	(default: 0)
+	gender: string
+	father: UUID
+	mother: UUID
+}
+*/
+
 var Family = {
 
 	_data: [
@@ -29,7 +42,7 @@ var Family = {
 	],
 	_persons: null,
 	_personIndex: null,
-	_generationIndex: null,
+	_generationIndex: null,	// array of arrays of indices in _persons[]
 	_lines: [
 		{"node1":"1234567890","node2":"1234567892"},
 		{"node1":"1234567890","node2":"1234567893"}
@@ -53,8 +66,14 @@ var Family = {
 		this._container = $(container);
 		this._preparePersons();
 		this._indexPersons();
+
+		this._checkOrphans();
+
+		this._prepareGenerations();
+
 		this._prepareNodes();
 		this._prepareLines();
+
 		this._drawLines();
 		this._drawNodes();
 	},
@@ -76,22 +95,83 @@ var Family = {
 		});
 	},
 
-	_prepareNodes: function(){
-		this._nodes = [];
+	/**
+	* Checks that every person's parents exist
+	* Note: must run only after persons have been indexed
+	*/
+	_checkOrphans: function(){
+		if(this._personIndex.length <= 0){
+			alert("Can't check for orphans before person index is built.");
+		}
+
+		var orphaned = [];
+		for(var i = 0; i<this._persons.length; i++){
+			var p = this._getPersonByIndex(i);
+			if(
+				(p.father != null && !this._personExistsByUUID(p.father)) || 
+				(p.mother != null && !this._personExistsByUUID(p.mother))
+			){
+				orphaned.push(i);
+			}
+		}
+
+		// @TODO REMOVE ORPHANS FROM _PERSONS HERE
+		// THEN REBUILD INDEX AND START OVER
+
+		if(orphaned.length > 0){
+			alert("Found " + orphaned.length + " orphans");
+		}else{
+			alert("no o");
+		}
+	},
+
+	_prepareGenerations: function(){
+
+		var indexed = []; // array of person indices already indexed
+
+		// index generations
 		// find persons with no parents, generation 0
 		this._generationIndex = [];
 		var gen0 = [];
 		for(var i = 0; i<this._persons.length; i++){
-			var p = this._persons[i];
+			var p = this._getPersonByIndex(i);
 			if(p.father == null && p.mother == null){
-				gen0.push(i);
-				p.generation = 0;
+				gen0.push(i);		// add to generation 0
+				indexed.push(i);	// mark as indexed
+				p.generation = 0;	// update generation info
+				this._setPersonAtIndex(p, i); // save person
 			}
 		}
 		this._generationIndex[0] = gen0;
 
-		// @TODO build nodes
+		// Build next generations
+		// note: won't loop forever since there can be no orphans
+		while(indexed.length < this._persons.length){
+			var genCounter = 1;
+			var cGen = [];	// array of persons in current gen
+			for(var i = 0; i<this._persons.length; i++){
+				if(indexed.indexOf(i) >= 0) continue; // already indexed
+				var personCountPrevGen = this._generationIndex[genCounter-1].length;
+				var cPerson = this._getPersonByIndex(i);
+				for(var a = 0; a<personCountPrevGen; a++){
+					var cParent = this._getPersonByIndex(a);
+					if(cPerson.mother == cParent.id || cPerson.father == cParent.id){
+						cGen.push(i);
+						indexed.push(i);
+						cPerson.generation = genCounter;
+						this._setPersonAtIndex(cPerson, i);
+						break;
+					}
+				}
+			}
+			this._generationIndex[genCounter] = cGen;
+		}
+	},
 
+	_prepareNodes: function(){
+		this._nodes = [];
+
+		// @TODO build nodes
 
 		// Index nodes
 		this._nodeIndex = [];
@@ -101,7 +181,9 @@ var Family = {
 	},
 
 	_prepareLines: function(){
+		//this._lines = [];
 
+		// @TODO prepare lines
 	},
 
 	_drawLines: function(){
@@ -114,7 +196,7 @@ var Family = {
 
 	_drawNodes: function(){
 		$.each(this._nodes, function(index, node){
-			var person = Family._getPerson(node.personId);
+			var person = Family._getPersonByUUID(node.personId);
 			var nodeElement = Family._newNode(node.x, node.y, person.fullname);
 			Family._container.append(nodeElement);
 		});
@@ -133,8 +215,28 @@ var Family = {
 			});
 	},
 
-	_getPerson: function(uuid){
-		return this._persons[this._personIndex[uuid]];
+	_setPersonAtIndex: function(person, index){
+		this._persons[index] = person;
+	},
+
+	_setPersonForUUID: function(person, uuid){
+		this._persons[this._personIndex[uuid]] = person;
+	},
+
+	_getPersonByIndex: function(index){
+		return this._persons[index];
+	},
+
+	_getPersonByUUID: function(uuid){
+		return this._getPersonByIndex(this._personIndex[uuid]);
+	},
+
+	_personExistsByUUID: function(uuid){
+		return this._personIndex[uuid] != null;
+	},
+
+	_personCount: function(){
+		return this._persons.length;
 	},
 
 	_getNodeForPerson: function(uuid){
