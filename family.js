@@ -47,12 +47,7 @@ var Family = {
 		{"node1":"1234567890","node2":"1234567892"},
 		{"node1":"1234567890","node2":"1234567893"}
 	],
-	_nodes: [
-		{"personId":"1234567890","y":100,"x":100},
-		{"personId":"1234567891","y":100,"x":255},
-		{"personId":"1234567892","y":200,"x":100},
-		{"personId":"1234567893","y":200,"x":255}
-	],
+	_nodes: null,
 	_nodeIndex: null,
 	_container: null,
 	_config: {
@@ -65,7 +60,6 @@ var Family = {
 	load: function(container) {
 		this._container = $(container);
 		this._preparePersons();
-		this._indexPersons();
 
 		this._checkOrphans();
 
@@ -79,6 +73,7 @@ var Family = {
 	},
 
 	_preparePersons: function(){
+		// Prepare persons from data
 		this._persons = [];
 		$.each(this._data, function(index, data){
 			var person = data;
@@ -86,9 +81,8 @@ var Family = {
 			person.generation = null;
 			Family._persons.push(person);
 		});
-	},
 
-	_indexPersons: function(){
+		// Index persons
 		this._personIndex = [];
 		$.each(this._persons, function(index, person){
 			Family._personIndex[person.id] = index;
@@ -101,7 +95,7 @@ var Family = {
 	*/
 	_checkOrphans: function(){
 		if(this._personIndex.length <= 0){
-			alert("Can't check for orphans before person index is built.");
+			throw new Error("Can't check for orphans before person index is built.");
 		}
 
 		var orphaned = [];
@@ -119,18 +113,16 @@ var Family = {
 		// THEN REBUILD INDEX AND START OVER
 
 		if(orphaned.length > 0){
-			alert("Found " + orphaned.length + " orphans");
-		}else{
-			alert("no o");
+			throw new Error("Found " + orphaned.length + " orphans");
 		}
 	},
 
 	_prepareGenerations: function(){
 
-		var indexed = []; // array of person indices already indexed
+		var indexed = []; // array of person indices already generation-indexed
 
-		// index generations
-		// find persons with no parents, generation 0
+		// Generation 0
+		// find persons with no parents
 		this._generationIndex = [];
 		var gen0 = [];
 		for(var i = 0; i<this._persons.length; i++){
@@ -138,40 +130,56 @@ var Family = {
 			if(p.father == null && p.mother == null){
 				gen0.push(i);		// add to generation 0
 				indexed.push(i);	// mark as indexed
-				p.generation = 0;	// update generation info
-				this._setPersonAtIndex(p, i); // save person
+				this._updatePersonAtIndex(i, 'generation', 0);
 			}
 		}
 		this._generationIndex[0] = gen0;
 
 		// Build next generations
 		// note: won't loop forever since there can be no orphans
-		while(indexed.length < this._persons.length){
-			var genCounter = 1;
+		var maxGen = 100;
+		var genCounter = 1;
+		while(indexed.length < this._persons.length && genCounter < maxGen){
 			var cGen = [];	// array of persons in current gen
+			var personCountPrevGen = this._generationIndex[genCounter-1].length;
+
 			for(var i = 0; i<this._persons.length; i++){
 				if(indexed.indexOf(i) >= 0) continue; // already indexed
-				var personCountPrevGen = this._generationIndex[genCounter-1].length;
 				var cPerson = this._getPersonByIndex(i);
 				for(var a = 0; a<personCountPrevGen; a++){
 					var cParent = this._getPersonByIndex(a);
 					if(cPerson.mother == cParent.id || cPerson.father == cParent.id){
 						cGen.push(i);
 						indexed.push(i);
-						cPerson.generation = genCounter;
-						this._setPersonAtIndex(cPerson, i);
+						this._updatePersonAtIndex(i, 'generation', genCounter);
 						break;
 					}
 				}
 			}
 			this._generationIndex[genCounter] = cGen;
+			genCounter++;
+		}
+		if(genCounter == maxGen - 1){
+			throw new Error("Error while indexing generations, some persons may be orphaned.");
 		}
 	},
 
 	_prepareNodes: function(){
 		this._nodes = [];
-
-		// @TODO build nodes
+		// loop through generations
+		for(var gen = 0; gen<this._generationIndex.length; gen++){
+			// loop through people in this gen
+			for(var pi = 0; pi<this._generationIndex[gen].length; pi++){
+				var x = this._config.containerPadding + 
+					pi * (this._config.personWidth + this._config.personMargin);
+				var y = this._config.containerPadding +
+					gen * (this._config.personHeight + this._config.personMargin);
+				var index = this._generationIndex[gen][pi];
+				var person = this._getPersonByIndex(index);
+				var node = this._newNodeObject(x, y, person.id);
+				this._nodes.push(node);
+			}
+		}
 
 		// Index nodes
 		this._nodeIndex = [];
@@ -190,19 +198,19 @@ var Family = {
 		$.each(this._lines, function(index, line){
 			var node1 = Family._getNodeForPerson(line.node1);
 			var node2 = Family._getNodeForPerson(line.node2);
-			Family._drawLine(node1.x, node1.y, node2.x, node2.y);
+			//Family._drawLine(node1.x, node1.y, node2.x, node2.y);
 		});
 	},
 
 	_drawNodes: function(){
 		$.each(this._nodes, function(index, node){
 			var person = Family._getPersonByUUID(node.personId);
-			var nodeElement = Family._newNode(node.x, node.y, person.fullname);
+			var nodeElement = Family._newNodeElement(node.x, node.y, person.fullname);
 			Family._container.append(nodeElement);
 		});
 	},
 
-	_newNode: function(x, y, text){
+	_newNodeElement: function(x, y, text){
 		return $("<div></div>")
 			.addClass("panel panel-default")
 			.text(text)
@@ -215,8 +223,18 @@ var Family = {
 			});
 	},
 
+	_newNodeObject: function(x, y, personId){
+		return { x: x, y: y, personId: personId };
+	},
+
 	_setPersonAtIndex: function(person, index){
 		this._persons[index] = person;
+	},
+
+	_updatePersonAtIndex: function(index, key, value){
+		var p = this._persons[index];
+		p[key] = value;
+		this._persons[index] = p;
 	},
 
 	_setPersonForUUID: function(person, uuid){
