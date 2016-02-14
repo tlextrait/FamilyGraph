@@ -452,7 +452,7 @@ var Family = {
 	        y = sy;
 	    var angle = Math.PI - Math.atan2(-b, a);
 	    var line = $("<div></div>").css({
-	    	"border":Family._config.lineThickness + "px solid black",
+	    	"border-top":Family._config.lineThickness + "px solid black",
 	    	"width":length+"px",
 	    	"height":"0px",
 	    	"-moz-transform":"rotate(" + angle + "rad)",
