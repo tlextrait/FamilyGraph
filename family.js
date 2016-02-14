@@ -26,9 +26,22 @@ person {
 	lastname: string
 	fullname: string
 	generation: int 	(default: 0)
-	gender: string
+	gender: char
 	father: UUID
 	mother: UUID
+	spouse: UUID
+	children: UUID[]
+}
+
+node {
+	personId: UUID
+	x: int	(pixels)
+	y: int	(pixels)
+}
+
+hub {
+	topNodes: UUID		(person id)
+	bottomNodes: UUID	(person id)
 }
 */
 
@@ -43,42 +56,48 @@ var Family = {
 	_persons: null,
 	_personIndex: null,
 	_generationIndex: null,	// array of arrays of indices in _persons[]
-	_lines: [
-		{"node1":"1234567890","node2":"1234567892"},
-		{"node1":"1234567890","node2":"1234567893"}
-	],
+	_hubs: null,
 	_nodes: null,
 	_nodeIndex: null,
 	_container: null,
 	_config: {
-		"containerPadding":20,
-		"personWidth":150,
-		"personMargin":5,
-		"personHeight":25
+		containerPadding: 20,
+		personWidth: 150,
+		personMargin: 9,	// an odd number is better if lineThickness is odd
+		personHeight: 22,
+		hubMargin: 2,
+		lineThickness: 1,
+		generationSpacing: null, // calculated
+		standardPropertyNames: ['id','firstname','lastname','gender','father','mother','x','y','node1','node2','personId','generation','fullname','spouse','children']
 	},
 
 	load: function(container) {
 		this._container = $(container);
+		this._prepareConfig();
 		this._preparePersons();
 
 		this._checkOrphans();
 
+		this._resolveSpouses();
 		this._prepareGenerations();
 
 		this._prepareNodes();
-		this._prepareLines();
+		this._prepareHubs();
 
-		this._drawLines();
+		this._drawHubs();
 		this._drawNodes();
+	},
+
+	_prepareConfig: function(){
+		this._config.generationSpacing = this._config.personMargin + 
+			2 * this._config.hubMargin + this._config.lineThickness;
 	},
 
 	_preparePersons: function(){
 		// Prepare persons from data
 		this._persons = [];
 		$.each(this._data, function(index, data){
-			var person = data;
-			person.fullname = data.firstname + " " + data.lastname;
-			person.generation = null;
+			var person = Family._newPersonObject(data);
 			Family._persons.push(person);
 		});
 
@@ -99,12 +118,9 @@ var Family = {
 		}
 
 		var orphaned = [];
-		for(var i = 0; i<this._persons.length; i++){
-			var p = this._getPersonByIndex(i);
-			if(
-				(p.father != null && !this._personExistsByUUID(p.father)) || 
-				(p.mother != null && !this._personExistsByUUID(p.mother))
-			){
+		for(var i = 0; i < this._persons.length; i++){
+			var p = this._persons[i];
+			if(!p.hasValidParents()){
 				orphaned.push(i);
 			}
 		}
@@ -117,6 +133,26 @@ var Family = {
 		}
 	},
 
+	_resolveSpouses: function(){
+		var resolved = [];
+		// Find people who have both a father and mother
+		for(var i = 0; i < this._persons.length; i++){
+			var person = this._persons[i];
+			if(resolved[person.id] === true) continue;
+			resolved[person.id] = true;
+
+			if(person.father != null && person.mother != null){
+				var f = this._getPersonByUUID(person.father);
+				var m = this._getPersonByUUID(person.mother);
+				f.spouse = m.id;
+				m.spouse = f.id;
+				this._updatePerson(f);
+				this._updatePerson(m);
+				resolved.push(f.id)
+			}
+		}
+	},
+
 	_prepareGenerations: function(){
 
 		var indexed = []; // array of person indices already generation-indexed
@@ -125,14 +161,16 @@ var Family = {
 		// find persons with no parents
 		this._generationIndex = [];
 		var gen0 = [];
-		for(var i = 0; i<this._persons.length; i++){
-			var p = this._getPersonByIndex(i);
-			if(p.father == null && p.mother == null){
+		for(var i = 0; i < this._persons.length; i++){
+			var p = this._persons[i];
+			if(p.hasNoParents()){
 				gen0.push(i);		// add to generation 0
 				indexed.push(i);	// mark as indexed
-				this._updatePersonAtIndex(i, 'generation', 0);
+				p.generation = 0;
+				this._updatePerson(p);
 			}
 		}
+		// @TODO sort gen0 so spouses are together and male on the left
 		this._generationIndex[0] = gen0;
 
 		// Build next generations
@@ -143,15 +181,18 @@ var Family = {
 			var cGen = [];	// array of persons in current gen
 			var personCountPrevGen = this._generationIndex[genCounter-1].length;
 
-			for(var i = 0; i<this._persons.length; i++){
+			for(var i = 0; i < this._persons.length; i++){
 				if(indexed.indexOf(i) >= 0) continue; // already indexed
-				var cPerson = this._getPersonByIndex(i);
-				for(var a = 0; a<personCountPrevGen; a++){
+				var cPerson = this._persons[i];
+				for(var a = 0; a < personCountPrevGen; a++){
 					var cParent = this._getPersonByIndex(a);
-					if(cPerson.mother == cParent.id || cPerson.father == cParent.id){
+					if(cPerson.hasParent(cParent.id)){
 						cGen.push(i);
 						indexed.push(i);
-						this._updatePersonAtIndex(i, 'generation', genCounter);
+						cPerson.generation = genCounter;
+						this._updatePerson(cPerson);
+						cParent.children.push(cPerson.id);
+						this._updatePerson(cParent);
 						break;
 					}
 				}
@@ -167,13 +208,13 @@ var Family = {
 	_prepareNodes: function(){
 		this._nodes = [];
 		// loop through generations
-		for(var gen = 0; gen<this._generationIndex.length; gen++){
+		for(var gen = 0; gen < this._generationIndex.length; gen++){
 			// loop through people in this gen
-			for(var pi = 0; pi<this._generationIndex[gen].length; pi++){
+			for(var pi = 0; pi < this._generationIndex[gen].length; pi++){
 				var x = this._config.containerPadding + 
 					pi * (this._config.personWidth + this._config.personMargin);
 				var y = this._config.containerPadding +
-					gen * (this._config.personHeight + this._config.personMargin);
+					gen * (this._config.personHeight + this._config.generationSpacing);
 				var index = this._generationIndex[gen][pi];
 				var person = this._getPersonByIndex(index);
 				var node = this._newNodeObject(x, y, person.id);
@@ -188,17 +229,49 @@ var Family = {
 		});
 	},
 
-	_prepareLines: function(){
-		//this._lines = [];
-
-		// @TODO prepare lines
+	_prepareHubs: function(){
+		this._hubs = [];
+		for(var i = 0; i < this._persons.length; i++){
+			var p = this._persons[i];
+			if(p.hasChildren() && (p.gender == "M" || p.spouse == null)){
+				var hub = this._newHubObject([p.id], p.children);
+				if(p.spouse != null){
+					hub.topNodes.push(p.spouse);
+				}
+				this._hubs.push(hub);
+				console.log(hub);
+			}
+		}
 	},
 
-	_drawLines: function(){
-		$.each(this._lines, function(index, line){
-			var node1 = Family._getNodeForPerson(line.node1);
-			var node2 = Family._getNodeForPerson(line.node2);
-			//Family._drawLine(node1.x, node1.y, node2.x, node2.y);
+	_drawHubs: function(){
+		$.each(this._hubs, function(index, hub){
+			var leftNode = hub.getLeftMostNode();
+			var rightNode = hub.getRightMostNode();
+
+			// Connect top nodes
+			var ty = Family._getNodeForPerson(hub.topNodes[0]).y + Family._config.personHeight / 2;
+			var tx1 = Family._getNodeForPerson(hub.topNodes[0]).x + Family._config.personWidth / 2;
+			var tx2 = Family._getNodeForPerson(hub.topNodes[1]).x + Family._config.personWidth / 2;
+			Family._drawLine(tx1, ty, tx2, ty);
+
+			// Horizontal line
+			var hz_y = Family._getNodeForPerson(hub.topNodes[0]).y + Family._config.personHeight + Family._config.generationSpacing / 2;
+			var hz_x1 = leftNode.x + Family._config.personWidth / 2;
+			var hz_x2 = rightNode.x + Family._config.personWidth / 2;
+			Family._drawLine(hz_x1, hz_y, hz_x2, hz_y);
+
+			// Top nodes vertical
+			var tnvx = Family._getNodeForPerson(hub.topNodes[0]).x + Family._config.personWidth + Family._config.personMargin / 2;
+			Family._drawLine(tnvx, ty, tnvx, hz_y);
+
+			// Connect bottom nodes
+			for(var b = 0; b < hub.bottomNodes.length; b++){
+				var node = Family._getNodeForPerson(hub.bottomNodes[b]);
+				var n_x = node.x + Family._config.personWidth / 2;
+				var n_y = node.y + Family._config.personHeight / 2;
+				Family._drawLine(n_x, hz_y, n_x, n_y);
+			}
 		});
 	},
 
@@ -224,7 +297,83 @@ var Family = {
 	},
 
 	_newNodeObject: function(x, y, personId){
-		return { x: x, y: y, personId: personId };
+		return { 
+			x: x, 
+			y: y, 
+			personId: personId 
+		};
+	},
+
+	_newPersonObject: function(data){
+		var person = data;
+		person.fullname = data.firstname + " " + data.lastname;
+		person.generation = null;
+		person.children = [];
+		person.spouse = null;
+		person.getSpouse = function(){
+			return Family._getPersonByUUID(this.spouse);
+		};
+		person.getFather = function(){
+			return Family._getPersonByUUID(this.father);
+		};
+		person.getMother = function(){
+			return Family._getMotherByUUID(this.mother);
+		};
+		person.hasBothParents = function(){
+			return this.mother != null && this.father != null;
+		};
+		person.hasNoParents = function(){
+			return !this.hasBothParents();
+		};
+		person.hasValidParents = function(){
+			return (this.father == null || Family._personExistsByUUID(this.father)) && 
+				(this.mother == null || Family._personExistsByUUID(this.mother));
+		};
+		person.hasParent = function(uuid){
+			return this.mother == uuid || this.father == uuid;
+		};
+		person.getNode = function(){
+			return Family._getNodeForPerson(this.id);
+		};
+		person.hasChildren = function(){
+			return this.children != null && this.children.length > 0;
+		};
+		return person;
+	},
+
+	_newHubObject: function(topNodes, bottomNodes){
+		var hub = {
+			topNodes: topNodes,
+			bottomNodes: bottomNodes
+		};
+		hub.getAllNodes = function(){
+			return this.topNodes.concat(this.bottomNodes);
+		};
+		hub.getLeftMostNode = function(){
+			var all = this.getAllNodes();
+			var min_x_node = Family._getNodeForPerson(all[0]);
+			if(all.length <= 1) return min_x_node;
+			for(var i = 1; i < all.length; i++){
+				var node = Family._getNodeForPerson(all[i]);
+				if(node.x < min_x_node.x){
+					min_x_node = node;
+				}
+			}
+			return min_x_node;
+		};
+		hub.getRightMostNode = function(){
+			var all = this.getAllNodes();
+			var max_x_node = Family._getNodeForPerson(all[0]);
+			if(all.length <= 1) return max_x_node;
+			for(var i = 1; i < all.length; i++){
+				var node = Family._getNodeForPerson(all[i]);
+				if(node.x > max_x_node.x){
+					max_x_node = node;
+				}
+			}
+			return max_x_node;
+		};
+		return hub;
 	},
 
 	_setPersonAtIndex: function(person, index){
@@ -239,6 +388,10 @@ var Family = {
 
 	_setPersonForUUID: function(person, uuid){
 		this._persons[this._personIndex[uuid]] = person;
+	},
+
+	_updatePerson: function(person){
+		this._setPersonForUUID(person, person.id);
 	},
 
 	_getPersonByIndex: function(index){
@@ -271,7 +424,7 @@ var Family = {
 	        y = sy;
 	    var angle = Math.PI - Math.atan2(-b, a);
 	    var line = $("<div></div>").css({
-	    	"border":"1px solid black",
+	    	"border":Family._config.lineThickness + "px solid black",
 	    	"width":length+"px",
 	    	"height":"0px",
 	    	"-moz-transform":"rotate(" + angle + "rad)",
