@@ -48,10 +48,14 @@ hub {
 var Family = {
 
 	_data: [
-		{"id":"1234567890","firstname":"John","lastname":"Doe","gender":"M","father":null,"mother":null},
-		{"id":"1234567891","firstname":"Patricia","lastname":"Doe","gender":"F","father":null,"mother":null},
-		{"id":"1234567892","firstname":"Stella","lastname":"Doe","gender":"F","father":"1234567890","mother":"1234567891"},
-		{"id":"1234567893","firstname":"James","lastname":"Doe","gender":"M","father":"1234567890","mother":"1234567891"}
+		{"id":"99991","firstname":"John","lastname":"Doe","gender":"M","father":null,"mother":null},
+		{"id":"99992","firstname":"Patricia","lastname":"Doe","gender":"F","father":null,"mother":null},
+		{"id":"1000000001","firstname":"John","lastname":"Doe","gender":"M","father":"99991","mother":"99992"},
+		{"id":"1000000002","firstname":"Patricia","lastname":"Doe","gender":"F","father":null,"mother":null},
+		{"id":"1000000003","firstname":"Stella","lastname":"Doe","gender":"F","father":"1000000001","mother":"1000000002"},
+		{"id":"1000000004","firstname":"James","lastname":"Doe","gender":"M","father":"1000000001","mother":"1000000002"},
+		{"id":"1000000005","firstname":"Dan","lastname":"Doe","gender":"M","father":"1000000001","mother":"1000000002"},
+		{"id":"1000000006","firstname":"Sebastian","lastname":"Doe","gender":"M","father":"1000000004","mother":null},
 	],
 	_persons: null,
 	_personIndex: null,
@@ -86,6 +90,9 @@ var Family = {
 
 		this._drawHubs();
 		this._drawNodes();
+
+		// DEBUG
+		this.__dash();
 	},
 
 	_prepareConfig: function(){
@@ -239,7 +246,6 @@ var Family = {
 					hub.topNodes.push(p.spouse);
 				}
 				this._hubs.push(hub);
-				console.log(hub);
 			}
 		}
 	},
@@ -323,7 +329,7 @@ var Family = {
 			return this.mother != null && this.father != null;
 		};
 		person.hasNoParents = function(){
-			return !this.hasBothParents();
+			return this.mother == null && this.father == null;
 		};
 		person.hasValidParents = function(){
 			return (this.father == null || Family._personExistsByUUID(this.father)) && 
@@ -436,6 +442,14 @@ var Family = {
 	    	"left":x+"px",
 	    });
 	    this._container.append(line);
+	},
+
+	// DEBUGGING DASHBOARD
+	__dash: function(){
+		var dash = $("<div style='background:rgba(255,255,255,0.7);display:block;position:fixed;bottom:5px;left:5px;border:1px solid red;width:150px;height:200px;padding:2px;font-size:10px;color:red;'></div>");
+		Family._container.append(dash);
+		dash.append("<span>" + Family._persons.length + " people </span><br/>");
+		dash.append("<span>" + Family._generationIndex.length + " generations </span><br/>");
 	},
 
 	// RFC4122 allows random and pseudo-random numbers
