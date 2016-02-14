@@ -87,9 +87,9 @@ var Family = {
 		this._prepareGenerations();
 
 		this._prepareNodes();
-		//this._prepareHubs();
+		this._prepareHubs();
 
-		//this._drawHubs();
+		this._drawHubs();
 		this._drawNodes();
 
 		// DEBUG
@@ -202,12 +202,19 @@ var Family = {
 							child.generation = genCounter;
 							this._updatePerson(child);
 						}
+						if(child.spouse != null && indexed.indexOf(child.spouse) < 0){
+							cGen.push(child.spouse);
+							indexed.push(child.spouse);
+							var spouse = this._getPersonByUUID(child.spouse);
+							spouse.generation = genCounter;
+							this._updatePerson(spouse);
+						}
 						cParent.children.push(child.id);
 						this._updatePerson(cParent);
 					}
 				}
 			}
-			
+
 			this._generationIndex[genCounter] = cGen;
 			genCounter++;
 		}
