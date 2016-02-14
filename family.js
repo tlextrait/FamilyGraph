@@ -48,17 +48,18 @@ hub {
 var Family = {
 
 	_data: [
-		{"id":"99991","firstname":"John","lastname":"Doe","gender":"M","father":null,"mother":null},
-		{"id":"99992","firstname":"Patricia","lastname":"Doe","gender":"F","father":null,"mother":null},
+		{"id":"99991","firstname":"Patrick","lastname":"Doe","gender":"M","father":null,"mother":null},
+		{"id":"99992","firstname":"Heather","lastname":"Doe","gender":"F","father":null,"mother":null},
 		{"id":"1000000001","firstname":"John","lastname":"Doe","gender":"M","father":"99991","mother":"99992"},
 		{"id":"1000000002","firstname":"Patricia","lastname":"Doe","gender":"F","father":null,"mother":null},
 		{"id":"1000000003","firstname":"Stella","lastname":"Doe","gender":"F","father":"1000000001","mother":"1000000002"},
 		{"id":"1000000004","firstname":"James","lastname":"Doe","gender":"M","father":"1000000001","mother":"1000000002"},
 		{"id":"1000000005","firstname":"Dan","lastname":"Doe","gender":"M","father":"1000000001","mother":"1000000002"},
-		{"id":"1000000006","firstname":"Sebastian","lastname":"Doe","gender":"M","father":"1000000004","mother":null},
+		//{"id":"1000000006","firstname":"Sebastian","lastname":"Doe","gender":"M","father":"1000000004","mother":null},
 	],
 	_persons: null,
 	_personIndex: null,
+	_orphans: null, // persons that can't be graphed
 	_generationIndex: null,	// array of arrays of indices in _persons[]
 	_hubs: null,
 	_nodes: null,
@@ -86,9 +87,9 @@ var Family = {
 		this._prepareGenerations();
 
 		this._prepareNodes();
-		this._prepareHubs();
+		//this._prepareHubs();
 
-		this._drawHubs();
+		//this._drawHubs();
 		this._drawNodes();
 
 		// DEBUG
@@ -124,19 +125,19 @@ var Family = {
 			throw new Error("Can't check for orphans before person index is built.");
 		}
 
-		var orphaned = [];
+		this._orphans = [];
 		for(var i = 0; i < this._persons.length; i++){
 			var p = this._persons[i];
 			if(!p.hasValidParents()){
-				orphaned.push(i);
+				this._orphans.push(i);
 			}
 		}
 
 		// @TODO REMOVE ORPHANS FROM _PERSONS HERE
 		// THEN REBUILD INDEX AND START OVER
 
-		if(orphaned.length > 0){
-			throw new Error("Found " + orphaned.length + " orphans");
+		if(this._orphans.length > 0){
+			throw new Error("Found " + this._orphans.length + " orphans");
 		}
 	},
 
@@ -162,17 +163,18 @@ var Family = {
 
 	_prepareGenerations: function(){
 
-		var indexed = []; // array of person indices already generation-indexed
+		var indexed = []; // array of person uuid's already generation-indexed
 
 		// Generation 0
-		// find persons with no parents
+		// find persons with no parents and whose spouse has no parents
 		this._generationIndex = [];
 		var gen0 = [];
 		for(var i = 0; i < this._persons.length; i++){
 			var p = this._persons[i];
-			if(p.hasNoParents()){
-				gen0.push(i);		// add to generation 0
-				indexed.push(i);	// mark as indexed
+			var sp = p.spouse == null ? null : this._getPersonByUUID(p.spouse);
+			if(p.hasNoParents() && (sp == null || sp.hasNoParents())){
+				gen0.push(p.id);	// add to generation 0
+				indexed.push(p.id);	// mark as indexed
 				p.generation = 0;
 				this._updatePerson(p);
 			}
@@ -186,29 +188,32 @@ var Family = {
 		var genCounter = 1;
 		while(indexed.length < this._persons.length && genCounter < maxGen){
 			var cGen = [];	// array of persons in current gen
-			var personCountPrevGen = this._generationIndex[genCounter-1].length;
+			var prevGen = this._generationIndex[genCounter-1];
 
-			for(var i = 0; i < this._persons.length; i++){
-				if(indexed.indexOf(i) >= 0) continue; // already indexed
-				var cPerson = this._persons[i];
-				for(var a = 0; a < personCountPrevGen; a++){
-					var cParent = this._getPersonByIndex(a);
-					if(cPerson.hasParent(cParent.id)){
-						cGen.push(i);
-						indexed.push(i);
-						cPerson.generation = genCounter;
-						this._updatePerson(cPerson);
-						cParent.children.push(cPerson.id);
+			for(var i = 0; i < prevGen.length; i++){
+				var cParent = this._getPersonByUUID(prevGen[i]);
+				var children = this._findPersonsWithParent(cParent.id);
+				if(children.length > 0){
+					for(var c = 0; c < children.length; c++){
+						var child = children[c];
+						if(indexed.indexOf(child.id) < 0){
+							cGen.push(child.id);
+							indexed.push(child.id);
+							child.generation = genCounter;
+							this._updatePerson(child);
+						}
+						cParent.children.push(child.id);
 						this._updatePerson(cParent);
-						break;
 					}
 				}
 			}
+			
 			this._generationIndex[genCounter] = cGen;
 			genCounter++;
 		}
-		if(genCounter == maxGen - 1){
-			throw new Error("Error while indexing generations, some persons may be orphaned.");
+		if(genCounter == maxGen){
+			this.__dash();
+			//throw new Error("Error while indexing generations, some persons may be orphaned.");
 		}
 	},
 
@@ -222,9 +227,8 @@ var Family = {
 					pi * (this._config.personWidth + this._config.personMargin);
 				var y = this._config.containerPadding +
 					gen * (this._config.personHeight + this._config.generationSpacing);
-				var index = this._generationIndex[gen][pi];
-				var person = this._getPersonByIndex(index);
-				var node = this._newNodeObject(x, y, person.id);
+				var uuid = this._generationIndex[gen][pi];
+				var node = this._newNodeObject(x, y, uuid);
 				this._nodes.push(node);
 			}
 		}
@@ -420,6 +424,17 @@ var Family = {
 		return this._nodes[this._nodeIndex[uuid]];
 	},
 
+	_findPersonsWithParent: function(uuid){
+		var found = [];
+		for(var i = 0; i < this._persons.length; i++){
+			var p = this._persons[i];
+			if(p.hasParent(uuid)){
+				found.push(p);
+			}
+		}
+		return found;
+	},
+
 	_drawLine: function(x1, y1, x2, y2) {
 		var a = x1 - x2,
 	        b = y1 - y2,
@@ -446,10 +461,16 @@ var Family = {
 
 	// DEBUGGING DASHBOARD
 	__dash: function(){
-		var dash = $("<div style='background:rgba(255,255,255,0.7);display:block;position:fixed;bottom:5px;left:5px;border:1px solid red;width:150px;height:200px;padding:2px;font-size:10px;color:red;'></div>");
+		var dash = $("<div style='background:rgba(255,255,255,0.7);display:block;position:fixed;bottom:5px;left:5px;border:1px solid red;width:150px;height:200px;padding:2px;font-size:10px;color:red;overflow-y:scroll'></div>");
 		Family._container.append(dash);
 		dash.append("<span>" + Family._persons.length + " people </span><br/>");
 		dash.append("<span>" + Family._generationIndex.length + " generations </span><br/>");
+		dash.append("<span>" + Family._orphans.length + " orphans </span><br/>");
+
+		dash.append("<br/><b>Generations:</b><br/>");
+		for(var i = 0; i < this._generationIndex.length; i++){
+			dash.append(this._generationIndex[i] + "<br/>");
+		}
 	},
 
 	// RFC4122 allows random and pseudo-random numbers
